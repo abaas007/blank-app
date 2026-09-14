@@ -1,3 +1,6 @@
+# RC8 - Render Environment Compatibility
+# Based on RC7 Owner Unit Editing Placement Fix
+# Preserves st.secrets support and adds os.environ fallback for Render
 # V67C - Tenant Lifecycle / Portal Synchronization Fix
 import os
 import json
@@ -15,6 +18,39 @@ import json
 from email.message import EmailMessage
 
 from supabase import create_client
+
+
+# =========================================================
+# RC8 - CONFIGURATION COMPATIBILITY
+# Codespaces/local development can continue using Streamlit
+# .streamlit/secrets.toml, while Render can use encrypted
+# environment variables. Streamlit secrets take precedence.
+# =========================================================
+def rentflow_secret_get(key, default=None):
+    """Return config from Streamlit secrets first, then environment variables."""
+    try:
+        value = st.secrets.get(key)
+        if value is not None and str(value).strip() != "":
+            return value
+    except Exception:
+        # No secrets.toml is expected on Render; fall through to os.environ.
+        pass
+
+    value = os.environ.get(str(key))
+    if value is None or str(value).strip() == "":
+        return default
+    return value
+
+
+def rentflow_secret_required(key):
+    """Return a required config value or raise a clear startup error."""
+    value = rentflow_secret_get(key)
+    if value is None or str(value).strip() == "":
+        raise RuntimeError(
+            f"Missing required RentFlow configuration: {key}. "
+            "Set it in .streamlit/secrets.toml or as a Render environment variable."
+        )
+    return value
 
 try:
     import stripe
@@ -263,7 +299,7 @@ st.markdown(
 # =========================================================
 def rentflow_debug_enabled():
     try:
-        return str(st.secrets.get("RENTFLOW_DEBUG", "false")).strip().lower() in {
+        return str(rentflow_secret_get("RENTFLOW_DEBUG", "false")).strip().lower() in {
             "1", "true", "yes", "on"
         }
     except Exception:
@@ -311,10 +347,10 @@ def get_supabase_server_client():
     Keep SUPABASE_SERVICE_ROLE_KEY only in Streamlit secrets. It is never
     attached to the tenant's browser auth session and is never displayed.
     """
-    url = str(st.secrets.get("SUPABASE_URL") or "").strip()
+    url = str(rentflow_secret_get("SUPABASE_URL") or "").strip()
     server_key = str(
-        st.secrets.get("SUPABASE_SERVICE_ROLE_KEY")
-        or st.secrets.get("SUPABASE_SECRET_KEY")
+        rentflow_secret_get("SUPABASE_SERVICE_ROLE_KEY")
+        or rentflow_secret_get("SUPABASE_SECRET_KEY")
         or ""
     ).strip()
 
@@ -361,9 +397,9 @@ def get_supabase():
     Authentication state is restored from st.session_state so one user's
     auth session is never shared through st.cache_resource with another user.
     """
-    url = st.secrets["SUPABASE_URL"]
+    url = rentflow_secret_required("SUPABASE_URL")
     key = validate_streamlit_supabase_key(
-        st.secrets["SUPABASE_KEY"]
+        rentflow_secret_required("SUPABASE_KEY")
     )
     client = create_client(url, key)
 
@@ -441,7 +477,7 @@ def get_rentflow_app_url():
     If it is not configured, Supabase falls back to the project's Site URL.
     """
     try:
-        value = st.secrets.get("RENTFLOW_APP_URL")
+        value = rentflow_secret_get("RENTFLOW_APP_URL")
         return str(value).rstrip("/") if value else None
     except Exception:
         return None
@@ -538,7 +574,7 @@ def show_forgot_email_page():
     )
 
     try:
-        support_email = st.secrets.get("RENTFLOW_SUPPORT_EMAIL")
+        support_email = rentflow_secret_get("RENTFLOW_SUPPORT_EMAIL")
     except Exception:
         support_email = None
 
@@ -647,9 +683,9 @@ def show_reset_password_page():
                     # Verify with a completely fresh anon-key client so a stale
                     # recovery session cannot create a false-success screen.
                     verification_client = create_client(
-                        st.secrets["SUPABASE_URL"],
+                        rentflow_secret_required("SUPABASE_URL"),
                         validate_streamlit_supabase_key(
-                            st.secrets["SUPABASE_KEY"]
+                            rentflow_secret_required("SUPABASE_KEY")
                         ),
                     )
 
@@ -755,7 +791,7 @@ def send_tenant_portal_invite_email(
 
     for key in required:
         try:
-            value = st.secrets.get(key)
+            value = rentflow_secret_get(key)
         except Exception:
             value = None
 
@@ -768,13 +804,13 @@ def send_tenant_portal_invite_email(
             + ", ".join(missing)
         )
 
-    smtp_host = str(st.secrets["SMTP_HOST"])
-    smtp_port = int(st.secrets["SMTP_PORT"])
-    smtp_username = str(st.secrets["SMTP_USERNAME"])
-    smtp_password = str(st.secrets["SMTP_PASSWORD"])
-    smtp_from_email = str(st.secrets["SMTP_FROM_EMAIL"])
+    smtp_host = str(rentflow_secret_required("SMTP_HOST"))
+    smtp_port = int(rentflow_secret_required("SMTP_PORT"))
+    smtp_username = str(rentflow_secret_required("SMTP_USERNAME"))
+    smtp_password = str(rentflow_secret_required("SMTP_PASSWORD"))
+    smtp_from_email = str(rentflow_secret_required("SMTP_FROM_EMAIL"))
     smtp_from_name = str(
-        st.secrets.get(
+        rentflow_secret_get(
             "SMTP_FROM_NAME",
             "RentFlow"
         )
@@ -785,7 +821,7 @@ def send_tenant_portal_invite_email(
     if not app_url:
         try:
             app_url = str(
-                st.secrets.get(
+                rentflow_secret_get(
                     "RENTFLOW_APP_URL",
                     ""
                 )
@@ -895,7 +931,7 @@ def send_rentflow_transactional_email(
     missing = []
     for key in required:
         try:
-            value = st.secrets.get(key)
+            value = rentflow_secret_get(key)
         except Exception:
             value = None
         if not value:
@@ -910,16 +946,16 @@ def send_rentflow_transactional_email(
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = (
-        f"{st.secrets.get('SMTP_FROM_NAME', 'RentFlow')} "
-        f"<{st.secrets['SMTP_FROM_EMAIL']}>"
+        f"{rentflow_secret_get('SMTP_FROM_NAME', 'RentFlow')} "
+        f"<{rentflow_secret_required('SMTP_FROM_EMAIL')}>"
     )
     msg["To"] = to_email
     msg.set_content(body)
 
-    host = str(st.secrets["SMTP_HOST"])
-    port = int(st.secrets["SMTP_PORT"])
-    username = str(st.secrets["SMTP_USERNAME"])
-    password = str(st.secrets["SMTP_PASSWORD"])
+    host = str(rentflow_secret_required("SMTP_HOST"))
+    port = int(rentflow_secret_required("SMTP_PORT"))
+    username = str(rentflow_secret_required("SMTP_USERNAME"))
+    password = str(rentflow_secret_required("SMTP_PASSWORD"))
 
     try:
         if port == 465:
@@ -950,7 +986,7 @@ def send_rentflow_transactional_email(
 
 def get_stripe_secret_key():
     try:
-        value = st.secrets.get("STRIPE_SECRET_KEY")
+        value = rentflow_secret_get("STRIPE_SECRET_KEY")
         return str(value).strip() if value else None
     except Exception:
         return None
@@ -958,7 +994,7 @@ def get_stripe_secret_key():
 
 def get_stripe_publishable_key():
     try:
-        value = st.secrets.get("STRIPE_PUBLISHABLE_KEY")
+        value = rentflow_secret_get("STRIPE_PUBLISHABLE_KEY")
         return str(value).strip() if value else None
     except Exception:
         return None
@@ -2239,7 +2275,7 @@ def finalize_stripe_payment_if_needed():
             "SUPABASE_KEY",
         ):
             try:
-                secret_value = str(st.secrets.get(secret_name) or "")
+                secret_value = str(rentflow_secret_get(secret_name) or "")
                 if secret_value:
                     safe_message = safe_message.replace(secret_value, "[REDACTED]")
             except Exception:
@@ -2265,7 +2301,7 @@ def get_stripe_price_id(plan_name):
     if not secret_name:
         return None
     try:
-        value = st.secrets.get(secret_name)
+        value = rentflow_secret_get(secret_name)
         return str(value).strip() if value else None
     except Exception:
         return None
@@ -4437,7 +4473,7 @@ def show_tenant_portal(tenant_profile):
                 "SUPABASE_KEY",
             ):
                 try:
-                    secret_value = str(st.secrets.get(secret_name) or "")
+                    secret_value = str(rentflow_secret_get(secret_name) or "")
                     if secret_value:
                         safe_message = safe_message.replace(
                             secret_value, "[REDACTED]"
@@ -9302,7 +9338,7 @@ def sync_owner_subscription_return_pre_auth():
             "SUPABASE_KEY",
         ):
             try:
-                secret_value = str(st.secrets.get(secret_name) or "")
+                secret_value = str(rentflow_secret_get(secret_name) or "")
                 if secret_value:
                     safe_message = safe_message.replace(
                         secret_value,
@@ -31072,7 +31108,7 @@ Update:
                             ):
                                 try:
                                     secret_value = str(
-                                        st.secrets.get(secret_name) or ""
+                                        rentflow_secret_get(secret_name) or ""
                                     )
                                     if secret_value:
                                         safe_email_error = safe_email_error.replace(
@@ -31138,7 +31174,7 @@ Update:
                     ):
                         try:
                             secret_value = str(
-                                st.secrets.get(secret_name) or ""
+                                rentflow_secret_get(secret_name) or ""
                             )
                             if secret_value:
                                 safe_message = safe_message.replace(
