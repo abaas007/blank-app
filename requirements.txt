@@ -2,3 +2,6 @@ streamlit
 supabase
 pandas
 stripe
+
+fastapi
+uvicorn
