@@ -15,6 +15,9 @@ from io import BytesIO
 import smtplib
 import base64
 import json
+import hashlib
+import hmac
+import secrets
 from email.message import EmailMessage
 
 from supabase import create_client
@@ -388,52 +391,286 @@ def validate_upload_size(uploaded_file, max_mb=10):
 
 
 # =========================================================
-# SUPABASE CONNECTION
+# CENTRALIZED AUTHENTICATION — RC13D V3 + SESSION ROLE LOCK
 # =========================================================
+# One auth authority: Supabase.
+# One browser persistence credential: Supabase refresh token.
+# No persisted access-token copy, no auth_user copy, no cached global auth client.
+_AUTH_COOKIE_NAME = "rentflow_auth_v3"
+_AUTH_COOKIE_DAYS = 30
+_AUTH_PORTAL_PARAM = "_rf_portal"
+_AUTH_ROLE_SIG_PARAM = "_rf_role_sig"
+_AUTH_VALID_PORTALS = {"owner", "tenant", "admin"}
+_AUTH_SESSION_ROLE_KEY = "_rentflow_session_role"
+
+@st.cache_resource
+def _auth_role_signing_key():
+    # Process-local signing key. A server restart intentionally invalidates old
+    # role locks and requires a clean sign-in rather than guessing a role.
+    return secrets.token_bytes(32)
+
+def _auth_role_signature(refresh_token, role):
+    payload = f"{str(refresh_token or '')}|{str(role or '').lower()}".encode("utf-8")
+    return hmac.new(_auth_role_signing_key(), payload, hashlib.sha256).hexdigest()
+
+def _auth_role_signature_valid(refresh_token, role, signature):
+    if role not in _AUTH_VALID_PORTALS or not refresh_token or not signature:
+        return False
+    expected = _auth_role_signature(refresh_token, role)
+    return hmac.compare_digest(expected, str(signature))
+
+def _auth_new_client():
+    return create_client(
+        rentflow_secret_required("SUPABASE_URL"),
+        validate_streamlit_supabase_key(rentflow_secret_required("SUPABASE_KEY")),
+    )
+
+def _auth_cookie_bridge(command, value="", cleanup_param=None):
+    safe_value = str(value or "").replace("\\", "\\\\").replace("'", "\\'")
+    cleanup_js = ""
+    if cleanup_param:
+        cleanup_js = f"""
+        const u = new URL(window.parent.location.href);
+        u.searchParams.delete({cleanup_param!r});
+        window.parent.location.replace(u.toString());
+        """
+    components.html(f"""
+    <script>
+    const NAME = {_AUTH_COOKIE_NAME!r};
+    const cmd = {command!r};
+    const val = '{safe_value}';
+    if (cmd === 'set') {{
+      document.cookie = `${{NAME}}=${{encodeURIComponent(val)}}; Max-Age=${{_AUTH_COOKIE_DAYS*86400}}; Path=/; SameSite=Lax; Secure`;
+    }} else if (cmd === 'delete') {{
+      document.cookie = `${{NAME}}=; Max-Age=0; Path=/; SameSite=Lax; Secure`;
+    }}
+    {cleanup_js}
+    </script>
+    """, height=0, width=0)
+
+def _auth_request_cookie_restore():
+    if st.query_params.get("_rf_cookie"):
+        return str(st.query_params.get("_rf_cookie") or "")
+    components.html(f"""
+    <script>
+    (() => {{
+      const name = {_AUTH_COOKIE_NAME!r} + '=';
+      let value = '';
+      for (const raw of document.cookie.split(';')) {{
+        const c = raw.trim();
+        if (c.startsWith(name)) {{
+          value = decodeURIComponent(c.substring(name.length));
+          break;
+        }}
+      }}
+      if (value) {{
+        const u = new URL(window.parent.location.href);
+        if (!u.searchParams.get('_rf_cookie')) {{
+          u.searchParams.set('_rf_cookie', value);
+          window.parent.location.replace(u.toString());
+        }}
+      }}
+    }})();
+    </script>
+    """, height=0, width=0)
+    return ""
+
+class RentFlowAuthManager:
+    """Single owner of RentFlow browser authentication state."""
+    CLIENT_KEY = "_rentflow_auth_client"
+
+    def __init__(self):
+        if self.CLIENT_KEY not in st.session_state:
+            st.session_state[self.CLIENT_KEY] = _auth_new_client()
+        self.client = st.session_state[self.CLIENT_KEY]
+
+    def current_session(self):
+        try:
+            session = self.client.auth.get_session()
+            return session if session and getattr(session, "user", None) else None
+        except Exception:
+            return None
+
+    def current_user(self):
+        session = self.current_session()
+        return getattr(session, "user", None) if session else None
+
+    def sign_in(self, email, password, role):
+        # RC13D: the portal used for explicit login becomes the immutable role
+        # for this authenticated browser session. URL routing cannot change it.
+        role = str(role or "").strip().lower()
+        if role not in _AUTH_VALID_PORTALS:
+            raise ValueError("A valid RentFlow login role is required.")
+
+        # A completed logout leaves a one-time _rf_logout marker in the URL until
+        # the browser cookie-deletion handshake finishes. A new explicit login
+        # supersedes that stale marker.
+        try:
+            if "_rf_logout" in st.query_params:
+                del st.query_params["_rf_logout"]
+        except Exception:
+            pass
+
+        result = self.client.auth.sign_in_with_password({
+            "email": str(email or "").strip(),
+            "password": str(password or ""),
+        })
+        session = getattr(result, "session", None)
+        refresh_token = getattr(session, "refresh_token", None) if session else None
+        if not session or not refresh_token:
+            raise RuntimeError("Supabase did not return a valid session.")
+
+        st.session_state[_AUTH_SESSION_ROLE_KEY] = role
+        st.query_params["_rf_cookie"] = refresh_token
+        st.query_params[_AUTH_PORTAL_PARAM] = role
+        st.query_params[_AUTH_ROLE_SIG_PARAM] = _auth_role_signature(refresh_token, role)
+        self.apply_portal_context()
+        return result
+
+    def persist_session(self, session):
+        """Persist sessions returned by signup/recovery without duplicating tokens."""
+        if session and getattr(session, "refresh_token", None):
+            st.query_params["_rf_cookie"] = session.refresh_token
+        return session
+
+    def establish_session(self, access_token, refresh_token):
+        """Establish a Supabase callback/recovery session through AuthManager."""
+        result = self.client.auth.set_session(access_token, refresh_token)
+        session = getattr(result, "session", None) or self.current_session()
+        self.persist_session(session)
+        return session
+
+    def set_active_portal(self, portal):
+        """Set portal context, but never override an authenticated RC13D role lock."""
+        requested = str(portal or "").strip().lower()
+        if requested not in _AUTH_VALID_PORTALS:
+            raise ValueError("Invalid RentFlow portal context.")
+        locked = str(st.session_state.get(_AUTH_SESSION_ROLE_KEY) or "").strip().lower()
+        portal = locked if locked in _AUTH_VALID_PORTALS else requested
+        st.query_params[_AUTH_PORTAL_PARAM] = portal
+        self.apply_portal_context()
+
+    def apply_portal_context(self):
+        """Apply the authenticated role lock; URL routing never grants/switches roles."""
+        locked = str(st.session_state.get(_AUTH_SESSION_ROLE_KEY) or "").strip().lower()
+        requested = str(st.query_params.get(_AUTH_PORTAL_PARAM) or "").strip().lower()
+        portal = locked if locked in _AUTH_VALID_PORTALS else requested
+        if portal not in _AUTH_VALID_PORTALS:
+            portal = ""
+        if locked in _AUTH_VALID_PORTALS and requested != locked:
+            st.query_params[_AUTH_PORTAL_PARAM] = locked
+        if portal == "admin":
+            st.session_state["admin_auth_mode"] = True
+            st.session_state["tenant_auth_mode"] = False
+            st.session_state["show_auth_screen"] = True
+        elif portal == "tenant":
+            st.session_state["admin_auth_mode"] = False
+            st.session_state["tenant_auth_mode"] = True
+        elif portal == "owner":
+            st.session_state["admin_auth_mode"] = False
+            st.session_state["tenant_auth_mode"] = False
+        return portal
+
+    def restore(self):
+        # Logout handshake always wins over every other routing path.
+        if st.query_params.get("_rf_logout"):
+            st.session_state.pop(_AUTH_SESSION_ROLE_KEY, None)
+            _auth_cookie_bridge("delete", cleanup_param="_rf_logout")
+            return None
+
+        refresh_token = str(st.query_params.get("_rf_cookie") or "")
+        requested_role = str(st.query_params.get(_AUTH_PORTAL_PARAM) or "").strip().lower()
+        role_sig = str(st.query_params.get(_AUTH_ROLE_SIG_PARAM) or "")
+        locked_role = str(st.session_state.get(_AUTH_SESSION_ROLE_KEY) or "").strip().lower()
+
+        # When a browser refresh supplies the persisted credential, restore the
+        # role only from a server-signed role binding. A hand-edited _rf_portal
+        # therefore cannot turn an Admin into an Owner (or vice versa).
+        if refresh_token:
+            signed_role = requested_role
+            if _auth_role_signature_valid(refresh_token, signed_role, role_sig):
+                locked_role = signed_role
+                st.session_state[_AUTH_SESSION_ROLE_KEY] = locked_role
+            elif locked_role not in _AUTH_VALID_PORTALS:
+                # RC13C/unsigned or tampered persistence: fail closed.
+                _auth_cookie_bridge("delete", cleanup_param="_rf_cookie")
+                return None
+
+            # The session role is authoritative even if the URL was edited.
+            st.query_params[_AUTH_PORTAL_PARAM] = locked_role
+            try:
+                result = self.client.auth.refresh_session(refresh_token)
+                session = getattr(result, "session", None)
+                if session and getattr(session, "user", None):
+                    newest = getattr(session, "refresh_token", None) or refresh_token
+                    st.query_params[_AUTH_ROLE_SIG_PARAM] = _auth_role_signature(newest, locked_role)
+                    _auth_cookie_bridge("set", newest, cleanup_param="_rf_cookie")
+                    self.apply_portal_context()
+                    return session
+            except Exception:
+                st.session_state.pop(_AUTH_SESSION_ROLE_KEY, None)
+                _auth_cookie_bridge("delete", cleanup_param="_rf_cookie")
+                return None
+
+        current = self.current_session()
+        if current and locked_role in _AUTH_VALID_PORTALS:
+            st.query_params[_AUTH_PORTAL_PARAM] = locked_role
+            self.apply_portal_context()
+            return current
+
+        # An authenticated Supabase session without a RentFlow role lock is not
+        # enough to choose a portal. Require explicit RentFlow sign-in.
+        if current:
+            try:
+                self.client.auth.sign_out()
+            except Exception:
+                pass
+
+        self.apply_portal_context()
+        _auth_request_cookie_restore()
+        return None
+
+    def logout(self):
+        try:
+            self.client.auth.sign_out()
+        except Exception:
+            pass
+        st.session_state.pop(self.CLIENT_KEY, None)
+        # Clear only auth/routing state that could reopen a protected portal.
+        for key in (
+            "show_auth_screen", "tenant_auth_mode", "admin_auth_mode",
+            "auth_default_tab", "auth_recovery_mode", "forgot_email_mode",
+            "tenant_password_recovery_mode", "password_recovery_verified",
+            "password_recovery_origin", _AUTH_SESSION_ROLE_KEY,
+        ):
+            st.session_state.pop(key, None)
+        st.query_params.clear()
+        st.query_params["_rf_logout"] = "1"
+
+_auth_manager = RentFlowAuthManager()
+supabase = _auth_manager.client
 
 def get_supabase():
-    """Create a Supabase client for this Streamlit browser session.
-
-    Authentication state is restored from st.session_state so one user's
-    auth session is never shared through st.cache_resource with another user.
-    """
-    url = rentflow_secret_required("SUPABASE_URL")
-    key = validate_streamlit_supabase_key(
-        rentflow_secret_required("SUPABASE_KEY")
-    )
-    client = create_client(url, key)
-
-    access_token = st.session_state.get("auth_access_token")
-    refresh_token = st.session_state.get("auth_refresh_token")
-
-    if access_token and refresh_token:
-        try:
-            client.auth.set_session(access_token, refresh_token)
-        except Exception:
-            st.session_state.pop("auth_access_token", None)
-            st.session_state.pop("auth_refresh_token", None)
-            st.session_state.pop("auth_user", None)
-
-    return client
-
+    """Compatibility accessor; authentication is owned only by _auth_manager."""
+    return _auth_manager.client
 
 def save_auth_session(session):
-    if session is not None:
-        st.session_state["auth_access_token"] = session.access_token
-        st.session_state["auth_refresh_token"] = session.refresh_token
-        if getattr(session, "user", None):
-            st.session_state["auth_user"] = session.user
-
+    """Compatibility for signup/recovery flows; no token copies are stored."""
+    return _auth_manager.persist_session(session)
 
 def clear_auth_session():
-    for key in (
-        "auth_access_token",
-        "auth_refresh_token",
-        "auth_user",
-    ):
-        st.session_state.pop(key, None)
+    """Legacy compatibility name. Clear the live auth client only."""
+    st.session_state.pop(_auth_manager.CLIENT_KEY, None)
 
+def auth_sign_in_with_password(email, password, role):
+    return _auth_manager.sign_in(email, password, role)
 
+def auth_set_active_portal(portal):
+    return _auth_manager.set_active_portal(portal)
+
+def auth_logout():
+    _auth_manager.logout()
+    st.rerun()
 
 
 def get_rentflow_user_guide_bytes():
@@ -637,19 +874,12 @@ def show_reset_password_page():
                     # 2) Update the password and validate the returned user.
                     # 3) Prove the new password works with a fresh Supabase client.
                     # 4) Only then clear recovery state and return to Sign In.
-                    access_token = st.session_state.get("auth_access_token")
-                    refresh_token = st.session_state.get("auth_refresh_token")
-
-                    if not access_token or not refresh_token:
+                    recovery_session = _auth_manager.current_session()
+                    if not recovery_session:
                         raise RuntimeError(
                             "Your recovery session is no longer available. "
                             "Please request a new password-reset email."
                         )
-
-                    recovery_session = supabase.auth.set_session(
-                        access_token,
-                        refresh_token,
-                    )
 
                     recovery_user = getattr(recovery_session, "user", None)
                     if recovery_user is None:
@@ -718,33 +948,15 @@ def show_reset_password_page():
                     except Exception:
                         pass
 
-                    # End the original recovery session and require a clean sign-in.
-                    try:
-                        supabase.auth.sign_out()
-                    except Exception:
-                        pass
-
-                    clear_auth_session()
-                    st.session_state.pop(
-                        "password_recovery_verified",
-                        None
-                    )
-                    recovery_origin = st.session_state.pop(
-                        "password_recovery_origin",
-                        None
-                    )
-
+                    # End the recovery session through the one centralized auth layer.
+                    recovery_origin = st.session_state.get("password_recovery_origin")
+                    _auth_manager.logout()
                     st.session_state["show_auth_screen"] = True
                     st.session_state["password_reset_success"] = True
 
                     if recovery_origin == "tenant":
                         st.session_state["tenant_auth_mode"] = True
-                        st.session_state.pop(
-                            "tenant_password_recovery_mode",
-                            None
-                        )
 
-                    st.query_params.clear()
                     st.rerun()
 
                 except Exception as e:
@@ -3086,10 +3298,7 @@ def show_tenant_portal_auth():
                     st.error("Enter your email and password.")
                 else:
                     try:
-                        response = supabase.auth.sign_in_with_password({
-                            "email": tenant_email.strip(),
-                            "password": tenant_password,
-                        })
+                        response = auth_sign_in_with_password(tenant_email, tenant_password, "tenant")
                         if response.session:
                             save_auth_session(response.session)
                             st.rerun()
@@ -3879,13 +4088,7 @@ def show_tenant_portal(tenant_profile):
                         use_container_width=True,
                         key="tenant_portal_sign_out_top"
                     ):
-                        try:
-                            supabase.auth.sign_out()
-                        except Exception:
-                            pass
-
-                        clear_auth_session()
-                        st.rerun()
+                        auth_logout()
             else:
                 with st.expander("👤"):
                     st.caption(
@@ -3897,13 +4100,7 @@ def show_tenant_portal(tenant_profile):
                         use_container_width=True,
                         key="tenant_portal_sign_out_top_fallback"
                     ):
-                        try:
-                            supabase.auth.sign_out()
-                        except Exception:
-                            pass
-
-                        clear_auth_session()
-                        st.rerun()
+                        auth_logout()
 
     tenant_id = tenant_profile.get("tenant_id")
     unit_id = tenant_profile.get("unit_id")
@@ -4911,13 +5108,13 @@ def show_rentflow_admin_auth():
                 st.error("Enter your admin email and password.")
             else:
                 try:
-                    response = supabase.auth.sign_in_with_password({
-                        "email": admin_email.strip(),
-                        "password": admin_password,
-                    })
+                    response = auth_sign_in_with_password(admin_email, admin_password, "admin")
 
                     if response.session:
                         save_auth_session(response.session)
+                        # RC13C: persist Admin as routing intent across browser refresh.
+                        # rentflow_is_admin() still revalidates authorization after restore.
+                        auth_set_active_portal("admin")
                         st.session_state["admin_auth_mode"] = True
                         st.session_state["tenant_auth_mode"] = False
                         st.session_state["show_auth_screen"] = True
@@ -5305,10 +5502,7 @@ def show_login_page():
                     st.error("Enter your email and password.")
                 else:
                     try:
-                        response = supabase.auth.sign_in_with_password({
-                            "email": email.strip(),
-                            "password": password,
-                        })
+                        response = auth_sign_in_with_password(email, password, "owner")
 
                         if response.session:
                             save_auth_session(
@@ -9065,17 +9259,12 @@ if (
     and not st.session_state.get("password_recovery_verified")
 ):
     try:
-        recovery_session = supabase.auth.set_session(
+        session_obj = _auth_manager.establish_session(
             recovery_access_token,
-            recovery_refresh_token
+            recovery_refresh_token,
         )
 
-        session_obj = getattr(recovery_session, "session", None)
-        if session_obj is None:
-            session_obj = supabase.auth.get_session()
-
         if session_obj:
-            save_auth_session(session_obj)
             st.session_state["password_recovery_verified"] = True
             st.session_state["password_recovery_origin"] = recovery_origin
             st.query_params.clear()
@@ -9362,15 +9551,8 @@ sync_owner_subscription_return_pre_auth()
 # Do not render the application or execute business queries until the user
 # has an authenticated Supabase session.
 # =========================================================
-auth_user = st.session_state.get("auth_user")
-if not auth_user:
-    try:
-        current_session = supabase.auth.get_session()
-        if current_session and current_session.user:
-            save_auth_session(current_session)
-            auth_user = current_session.user
-    except Exception:
-        auth_user = None
+_auth_session = _auth_manager.restore()
+auth_user = getattr(_auth_session, "user", None) if _auth_session else None
 
 if (
     auth_user
@@ -11783,14 +11965,7 @@ if _admin_portal_requested and not _rentflow_is_admin:
         use_container_width=False,
         key="unauthorized_admin_back"
     ):
-        try:
-            supabase.auth.sign_out()
-        except Exception:
-            pass
-        clear_auth_session()
-        st.session_state["admin_auth_mode"] = False
-        st.session_state["show_auth_screen"] = False
-        st.rerun()
+        auth_logout()
     st.stop()
 
 _admin_portal_active = (
@@ -11944,13 +12119,7 @@ with st.container(key="owner_top_nav"):
                     use_container_width=True,
                     key="owner_top_sign_out"
                 ):
-                    try:
-                        supabase.auth.sign_out()
-                    except Exception:
-                        pass
-
-                    clear_auth_session()
-                    st.rerun()
+                    auth_logout()
 
         else:
             # Compatibility fallback for older Streamlit builds.
@@ -11964,13 +12133,7 @@ with st.container(key="owner_top_nav"):
                     use_container_width=True,
                     key="owner_top_sign_out_fallback"
                 ):
-                    try:
-                        supabase.auth.sign_out()
-                    except Exception:
-                        pass
-
-                    clear_auth_session()
-                    st.rerun()
+                    auth_logout()
 
 menu = _owner_menu_map[
     _owner_menu_choice
@@ -17315,12 +17478,7 @@ if menu == "Plans & Usage":
             use_container_width=True,
             key="account_security_sign_out"
         ):
-            try:
-                supabase.auth.sign_out()
-            except Exception:
-                pass
-            clear_auth_session()
-            st.rerun()
+            auth_logout()
 
 
     if _plans_section == "Activity":

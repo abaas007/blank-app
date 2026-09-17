@@ -5,3 +5,4 @@ stripe
 
 fastapi
 uvicorn
+streamlit-cookies-manager-v2
