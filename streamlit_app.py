@@ -2540,6 +2540,15 @@ def get_owner_profile(user_id):
 
 
 def create_owner_subscription_checkout(user_id, email, plan_name):
+    """Create a new owner subscription checkout safely.
+
+    RC13E billing cleanup:
+    - validates the configured Price against the active Stripe account/mode
+    - treats a stale/migrated stripe_customer_id as recoverable
+    - never lets an old customer reference block a fresh Checkout
+    - keeps Stripe as the source of truth; the verified return sync writes the
+      newly-created customer/subscription IDs back to owner_profiles
+    """
     if not STRIPE_AVAILABLE:
         raise RuntimeError("Stripe package is not installed. Run: pip install stripe")
 
@@ -2555,12 +2564,40 @@ def create_owner_subscription_checkout(user_id, email, plan_name):
         raise RuntimeError("RENTFLOW_APP_URL is missing.")
 
     stripe.api_key = secret_key
+
+    # Fail early with a useful error when a Render Price ID belongs to a
+    # different Stripe account/mode or is otherwise invalid.
+    try:
+        configured_price = stripe.Price.retrieve(str(price_id))
+    except Exception as exc:
+        raise RuntimeError(
+            f"The configured Stripe Price for {plan_name} is not available "
+            "to the current Stripe account/mode. Verify the Render "
+            f"STRIPE_PRICE_{plan_name.upper()} value."
+        ) from exc
+
+    if not bool(getattr(configured_price, "active", True)):
+        raise RuntimeError(f"The configured Stripe Price for {plan_name} is inactive.")
+
     profile = get_owner_profile(user_id)
-    existing_customer = profile.get("stripe_customer_id")
+    existing_customer = str(profile.get("stripe_customer_id") or "").strip()
+    usable_customer = None
+
+    # Production/test migrations can leave a cus_ ID in Supabase that does not
+    # exist under the Stripe key currently configured in Render. Do not pass
+    # that stale ID to Checkout. Stripe will create a new customer from email,
+    # and the verified checkout-return sync will persist the new IDs.
+    if existing_customer:
+        try:
+            customer = stripe.Customer.retrieve(existing_customer)
+            if not bool(getattr(customer, "deleted", False)):
+                usable_customer = existing_customer
+        except Exception:
+            usable_customer = None
 
     args = {
         "mode": "subscription",
-        "line_items": [{"price": price_id, "quantity": 1}],
+        "line_items": [{"price": str(price_id), "quantity": 1}],
         "success_url": f"{app_url}?owner_subscription=success&session_id={{CHECKOUT_SESSION_ID}}",
         "cancel_url": f"{app_url}?owner_subscription=cancelled",
         "metadata": {"user_id": str(user_id), "plan": plan_name},
@@ -2569,10 +2606,13 @@ def create_owner_subscription_checkout(user_id, email, plan_name):
         },
     }
 
-    if existing_customer:
-        args["customer"] = existing_customer
+    if usable_customer:
+        args["customer"] = usable_customer
     else:
-        args["customer_email"] = email
+        clean_email = str(email or "").strip()
+        if not clean_email:
+            raise RuntimeError("A verified owner email is required for Stripe Checkout.")
+        args["customer_email"] = clean_email
 
     return stripe.checkout.Session.create(**args)
 
