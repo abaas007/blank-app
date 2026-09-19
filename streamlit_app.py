@@ -17117,6 +17117,32 @@ if menu == "Plans & Usage":
                     ] = selected_billing_plan
 
             except Exception as e:
+                # RC13F: log the exact billing exception server-side so
+                # production failures can be diagnosed without enabling
+                # RENTFLOW_DEBUG or exposing a traceback in the owner UI.
+                safe_message = str(e)
+                for secret_name in (
+                    "STRIPE_SECRET_KEY",
+                    "STRIPE_PUBLISHABLE_KEY",
+                    "SUPABASE_SERVICE_ROLE_KEY",
+                    "SUPABASE_SECRET_KEY",
+                    "SUPABASE_KEY",
+                ):
+                    try:
+                        secret_value = str(rentflow_secret_get(secret_name) or "")
+                        if secret_value:
+                            safe_message = safe_message.replace(
+                                secret_value,
+                                "[REDACTED]",
+                            )
+                    except Exception:
+                        pass
+
+                print(
+                    "[RentFlow Billing] Plan change failed: "
+                    f"{type(e).__name__}: {safe_message}",
+                    flush=True,
+                )
                 st.error("Unable to change subscription plan.")
                 show_debug_exception(e)
 
