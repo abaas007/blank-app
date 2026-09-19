@@ -17138,12 +17138,19 @@ if menu == "Plans & Usage":
                     except Exception:
                         pass
 
-                print(
+                # RC13G: emit through stderr/logger-compatible output and show a
+                # redacted diagnostic in the owner UI during this controlled test.
+                # This is intentionally limited to the plan-change exception path.
+                import sys
+                diagnostic = (
                     "[RentFlow Billing] Plan change failed: "
-                    f"{type(e).__name__}: {safe_message}",
-                    flush=True,
+                    f"{type(e).__name__}: {safe_message}"
                 )
+                print(diagnostic, file=sys.stderr, flush=True)
                 st.error("Unable to change subscription plan.")
+                st.caption(
+                    f"Billing diagnostic: {type(e).__name__}: {safe_message}"
+                )
                 show_debug_exception(e)
 
         changed_plan = st.session_state.pop(
