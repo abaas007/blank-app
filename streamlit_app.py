@@ -141,6 +141,144 @@ st.set_page_config(
     layout="wide"
 )
 
+# STEP 3 — Mobile content optimization (presentation only)
+st.markdown(r'''
+<style>
+/* ============================================================
+   RentFlow V1 — MOBILE STEP 3
+   Content/readability/touch optimization only.
+   Desktop behavior is intentionally unchanged.
+   ============================================================ */
+@media (max-width: 768px) {
+
+    /* Comfortable phone typography and predictable sizing */
+    section[data-testid="stMain"] *,
+    section[data-testid="stMain"] *::before,
+    section[data-testid="stMain"] *::after {
+        box-sizing: border-box;
+    }
+
+    section[data-testid="stMain"] h1 {
+        font-size: 1.72rem !important;
+        line-height: 1.16 !important;
+        overflow-wrap: anywhere;
+    }
+
+    section[data-testid="stMain"] h2 {
+        font-size: 1.42rem !important;
+        line-height: 1.20 !important;
+        overflow-wrap: anywhere;
+    }
+
+    section[data-testid="stMain"] h3 {
+        font-size: 1.18rem !important;
+        line-height: 1.24 !important;
+        overflow-wrap: anywhere;
+    }
+
+    section[data-testid="stMain"] p,
+    section[data-testid="stMain"] label,
+    section[data-testid="stMain"] [data-testid="stCaptionContainer"] {
+        overflow-wrap: anywhere;
+    }
+
+    /* Keep controls usable for touch without altering their callbacks */
+    section[data-testid="stMain"] .stButton > button,
+    section[data-testid="stMain"] .stDownloadButton > button,
+    section[data-testid="stMain"] [data-testid="stFormSubmitButton"] > button,
+    section[data-testid="stMain"] a[data-testid="stLinkButton"] {
+        min-height: 44px !important;
+    }
+
+    section[data-testid="stMain"] .stTextInput input,
+    section[data-testid="stMain"] .stNumberInput input,
+    section[data-testid="stMain"] .stDateInput input,
+    section[data-testid="stMain"] .stTimeInput input,
+    section[data-testid="stMain"] [data-baseweb="select"] > div {
+        min-height: 42px !important;
+    }
+
+    /* Let wide data remain scrollable instead of forcing the whole page wide */
+    section[data-testid="stMain"] [data-testid="stDataFrame"],
+    section[data-testid="stMain"] [data-testid="stTable"],
+    section[data-testid="stMain"] [data-testid="stDataEditor"] {
+        max-width: 100% !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    section[data-testid="stMain"] [data-testid="stDataFrame"] > div,
+    section[data-testid="stMain"] [data-testid="stTable"] > div,
+    section[data-testid="stMain"] [data-testid="stDataEditor"] > div {
+        max-width: 100% !important;
+    }
+
+    /* Charts/media should never push the phone canvas sideways */
+    section[data-testid="stMain"] img,
+    section[data-testid="stMain"] svg,
+    section[data-testid="stMain"] canvas {
+        max-width: 100%;
+    }
+
+    /* Forms/expanders: reduce desktop-like spacing on a phone */
+    section[data-testid="stMain"] [data-testid="stForm"],
+    section[data-testid="stMain"] [data-testid="stExpander"] {
+        max-width: 100% !important;
+    }
+
+    /* Streamlit horizontal blocks are allowed to wrap on narrow screens.
+       Existing desktop column definitions remain untouched. */
+    section[data-testid="stMain"] [data-testid="stHorizontalBlock"] {
+        flex-wrap: wrap !important;
+        gap: .65rem !important;
+    }
+
+    /* Four/three/two-up operational cards become readable phone cards.
+       We avoid forcing tiny utility/icon columns by applying only to
+       columns that already occupy a meaningful portion of the row. */
+    section[data-testid="stMain"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+        min-width: min(100%, 145px) !important;
+    }
+
+    /* Metric/card rows get two-up when room permits, one-up on very small phones. */
+    section[data-testid="stMain"] [data-testid="stMetric"] {
+        width: 100% !important;
+        min-height: 92px;
+    }
+
+    /* Prevent long labels and values from being clipped */
+    section[data-testid="stMain"] [data-testid="stMetricLabel"],
+    section[data-testid="stMain"] [data-testid="stMetricValue"] {
+        white-space: normal !important;
+        overflow-wrap: anywhere !important;
+    }
+
+    /* Dialogs/popovers should fit the viewport */
+    div[data-baseweb="popover"],
+    div[role="dialog"] {
+        max-width: calc(100vw - 1rem) !important;
+    }
+}
+
+@media (max-width: 430px) {
+    /* On small phones, content columns become a clean single stack.
+       Navigation/header controls are outside stMain and are not affected. */
+    section[data-testid="stMain"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+        flex: 1 1 100% !important;
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    section[data-testid="stMain"] .stButton > button,
+    section[data-testid="stMain"] .stDownloadButton > button,
+    section[data-testid="stMain"] [data-testid="stFormSubmitButton"] > button {
+        width: 100% !important;
+    }
+}
+</style>
+''', unsafe_allow_html=True)
+
+
 
 
 # =========================================================
@@ -6675,6 +6813,57 @@ def show_demo_mode():
             width: calc(100% - 215px) !important;
         }
 
+        /* Mobile section selector is hidden on desktop. */
+        .st-key-demo_mobile_subnav {
+            display: none !important;
+        }
+
+        /* STEP 1B + STEP 2 — Demo mobile layout/navigation. */
+        @media (max-width: 768px) {
+            section[data-testid="stSidebar"],
+            section[data-testid="stSidebar"] > div {
+                display: none !important;
+                visibility: hidden !important;
+                width: 0 !important;
+                min-width: 0 !important;
+                max-width: 0 !important;
+                transform: translateX(-100%) !important;
+            }
+
+            section[data-testid="stMain"] {
+                margin-left: 0 !important;
+                width: 100% !important;
+                max-width: 100% !important;
+            }
+
+            section[data-testid="stMain"] .block-container {
+                width: 100% !important;
+                max-width: 100% !important;
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+                padding-left: 0.75rem !important;
+                padding-right: 0.75rem !important;
+                box-sizing: border-box !important;
+            }
+
+            .st-key-demo_mobile_subnav {
+                display: block !important;
+                margin: .20rem 0 .70rem 0 !important;
+            }
+
+            .st-key-demo_mobile_subnav [data-baseweb="select"] > div {
+                min-height: 42px !important;
+                border-radius: 10px !important;
+                border-color: rgba(20,150,79,.38) !important;
+                background: #FFFFFF !important;
+            }
+
+            .st-key-demo_mobile_subnav [data-testid="stCaptionContainer"] {
+                color: #667085 !important;
+                font-weight: 700 !important;
+            }
+        }
+
         @media (max-width: 1150px) {
             .st-key-demo_top_navigation button {
                 font-size: .78rem !important;
@@ -6820,6 +7009,32 @@ def show_demo_mode():
                 "🎯 Opened directly to "
                 f"**{focus.get('label')}**."
             )
+
+    # STEP 2 — Mobile secondary navigation for Demo.
+    # Desktop keeps the existing sidebar. Mobile gets a compact section selector
+    # backed by the exact same sidebar_key state, so routing/business logic stays unchanged.
+    _demo_mobile_key = f"demo_mobile_submenu_{demo_page}"
+
+    def _sync_demo_mobile_submenu():
+        selected = st.session_state.get(_demo_mobile_key)
+        if selected in demo_sections:
+            st.session_state[sidebar_key] = selected
+
+    if st.session_state.get(_demo_mobile_key) not in demo_sections:
+        st.session_state[_demo_mobile_key] = st.session_state.get(
+            sidebar_key,
+            demo_sections[0],
+        )
+
+    with st.container(key="demo_mobile_subnav"):
+        st.caption(f"{demo_page[2:]} · Section")
+        st.selectbox(
+            "Demo section",
+            demo_sections,
+            key=_demo_mobile_key,
+            label_visibility="collapsed",
+            on_change=_sync_demo_mobile_submenu,
+        )
 
     with st.sidebar:
         st.markdown(
@@ -12526,6 +12741,32 @@ if (not _admin_portal_active) and menu in _owner_submenus:
 
     if st.session_state.get(_sidebar_key) not in _submenu_display:
         st.session_state[_sidebar_key] = _submenu_display[0]
+
+    # STEP 2 — Mobile secondary navigation for authenticated Owner.
+    # Desktop keeps the existing sidebar. Mobile uses a compact selector tied
+    # to the same submenu state; no route, auth, Stripe, or data logic changes.
+    _owner_mobile_submenu_key = f"owner_mobile_submenu_{menu}"
+
+    def _sync_owner_mobile_submenu():
+        selected = st.session_state.get(_owner_mobile_submenu_key)
+        if selected in _submenu_display:
+            st.session_state[_sidebar_key] = selected
+
+    if st.session_state.get(_owner_mobile_submenu_key) not in _submenu_display:
+        st.session_state[_owner_mobile_submenu_key] = st.session_state.get(
+            _sidebar_key,
+            _submenu_display[0],
+        )
+
+    with st.container(key="owner_mobile_subnav"):
+        st.caption(f"{menu} · Section")
+        st.selectbox(
+            f"{menu} section",
+            _submenu_display,
+            key=_owner_mobile_submenu_key,
+            label_visibility="collapsed",
+            on_change=_sync_owner_mobile_submenu,
+        )
 
     with st.sidebar:
         _owner_nav_label = {
@@ -41810,6 +42051,58 @@ st.markdown(
         section[data-testid="stMain"] {
             margin-left: 180px !important;
             width: calc(100% - 180px) !important;
+        }
+    }
+
+    /* STEP 2 mobile secondary navigation is hidden on desktop. */
+    .st-key-owner_mobile_subnav {
+        display: none !important;
+    }
+
+    /* STEP 1 + STEP 2 — Mobile content width and secondary navigation.
+       Desktop sidebar remains unchanged. */
+    @media (max-width: 768px) {
+        section[data-testid="stSidebar"],
+        section[data-testid="stSidebar"] > div {
+            display: none !important;
+            visibility: hidden !important;
+            width: 0 !important;
+            min-width: 0 !important;
+            max-width: 0 !important;
+            transform: translateX(-100%) !important;
+        }
+
+        section[data-testid="stMain"] {
+            margin-left: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+
+        section[data-testid="stMain"] .block-container {
+            width: 100% !important;
+            max-width: 100% !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+            padding-left: 0.75rem !important;
+            padding-right: 0.75rem !important;
+            box-sizing: border-box !important;
+        }
+
+        .st-key-owner_mobile_subnav {
+            display: block !important;
+            margin: .20rem 0 .70rem 0 !important;
+        }
+
+        .st-key-owner_mobile_subnav [data-baseweb="select"] > div {
+            min-height: 42px !important;
+            border-radius: 10px !important;
+            border-color: rgba(20,150,79,.38) !important;
+            background: #FFFFFF !important;
+        }
+
+        .st-key-owner_mobile_subnav [data-testid="stCaptionContainer"] {
+            color: #667085 !important;
+            font-weight: 700 !important;
         }
     }
     </style>
