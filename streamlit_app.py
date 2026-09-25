@@ -1,3 +1,5 @@
+# RentFlow V1 Production - Public Launch / Billing Pending
+# Based on RC13G; preserves RC13D auth/role isolation and validated workflows.
 # RC8 - Render Environment Compatibility
 # Based on RC7 Owner Unit Editing Placement Fix
 # Preserves st.secrets support and adds os.environ fallback for Render
@@ -8799,7 +8801,7 @@ def show_marketing_landing():
         unsafe_allow_html=True
     )
 
-    cta1, cta2, cta3, cta4, cta5 = st.columns(5)
+    cta1, cta2, cta3, cta4 = st.columns(4)
 
     with cta1:
         if st.button(
@@ -8844,18 +8846,6 @@ def show_marketing_landing():
         ):
             st.session_state["tenant_auth_mode"] = True
             st.session_state["admin_auth_mode"] = False
-            st.session_state["show_auth_screen"] = True
-            st.session_state["auth_default_tab"] = "signin"
-            st.rerun()
-
-    with cta5:
-        if st.button(
-            "🛠️ RentFlow Admin",
-            use_container_width=True,
-            key="landing_admin_portal_top"
-        ):
-            st.session_state["tenant_auth_mode"] = False
-            st.session_state["admin_auth_mode"] = True
             st.session_state["show_auth_screen"] = True
             st.session_state["auth_default_tab"] = "signin"
             st.rerun()
@@ -8923,8 +8913,7 @@ def show_marketing_landing():
                 <div class="rf-wave-icon">🛡️</div>
                 <h4>Tenant Portal + Secure Payments</h4>
                 <p>
-                    Give tenants a simple portal and let them pay rent
-                    online through secure Stripe checkout.
+                    Give tenants a simple portal for rent and maintenance. Online payments are enabled after payment-account approval.
                 </p>
             </div>
             """,
@@ -9032,7 +9021,7 @@ def show_marketing_landing():
         ),
         (
             f2, "💰", "Rent & Payments",
-            "Track rent, balances, collection progress, and online payments."
+            "Track rent, balances, collection progress, and payment history."
         ),
         (
             f3, "📊", "Financial Performance",
@@ -9064,6 +9053,15 @@ def show_marketing_landing():
                 """,
                 unsafe_allow_html=True
             )
+
+    # --------------------------------------------------
+    # LAUNCH / PAYMENT AVAILABILITY
+    # --------------------------------------------------
+    st.info(
+        "🚀 **RentFlow V1 is live.** Owner and tenant workflows are available now. "
+        "Online subscription checkout and live card processing are being activated "
+        "and will become available after payment-provider approval."
+    )
 
     # --------------------------------------------------
     # PRICING
@@ -9153,7 +9151,7 @@ def show_marketing_landing():
         unsafe_allow_html=True
     )
 
-    b1, b2, b3, b4, b5 = st.columns(5)
+    b1, b2, b3, b4 = st.columns(4)
 
     with b1:
         if st.button(
@@ -9202,18 +9200,6 @@ def show_marketing_landing():
             st.session_state["auth_default_tab"] = "signin"
             st.rerun()
 
-    with b5:
-        if st.button(
-            "🛠️ RentFlow Admin",
-            use_container_width=True,
-            key="landing_admin_portal"
-        ):
-            st.session_state["tenant_auth_mode"] = False
-            st.session_state["admin_auth_mode"] = True
-            st.session_state["show_auth_screen"] = True
-            st.session_state["auth_default_tab"] = "signin"
-            st.rerun()
-
     st.markdown("---")
     guide_left, guide_center, guide_right = st.columns([1, 1.4, 1])
     with guide_center:
@@ -9226,6 +9212,54 @@ def show_marketing_landing():
             key="landing_owner_user_guide",
             use_container_width=True
         )
+
+    st.markdown("---")
+    st.markdown("## Company & Policies")
+    st.caption(
+        "RentFlow is property-management software for independent property owners. "
+        "Questions about the product, account access, or billing can be sent to the support contact below."
+    )
+
+    legal1, legal2, legal3 = st.columns(3)
+    with legal1:
+        with st.expander("Privacy Policy"):
+            st.markdown(
+                """
+**RentFlow Privacy Policy — V1**
+
+RentFlow uses account, property, tenant, lease, maintenance, document, and payment-related information to provide the services selected by an account owner or tenant. Access is limited by authenticated role and account scope.
+
+RentFlow uses third-party service providers for infrastructure, authentication, data storage, and payment processing. Payment-card details are handled by the payment provider and are not intended to be stored directly by RentFlow.
+
+Users may contact RentFlow support regarding access, correction, or deletion requests, subject to legal and operational retention requirements.
+                """
+            )
+    with legal2:
+        with st.expander("Terms of Service"):
+            st.markdown(
+                """
+**RentFlow Terms of Service — V1**
+
+RentFlow provides software tools for rental-property operations, including property, tenant, rent, maintenance, document, reporting, and related workflows. Owners remain responsible for their business decisions, records, legal obligations, tenant communications, and use of the service.
+
+Plan limits and pricing are displayed in RentFlow. Subscription billing begins only when live billing is available and the customer completes the applicable checkout. Accounts may be suspended for misuse, security concerns, or nonpayment once paid billing is active.
+                """
+            )
+    with legal3:
+        with st.expander("Cancellation & Refund Policy"):
+            st.markdown(
+                """
+**Cancellation & Refund Policy — V1**
+
+Customers may cancel a paid RentFlow subscription to stop renewal at the end of the applicable billing period. Once live subscription billing is enabled, cancellation controls will be available through RentFlow/its billing provider.
+
+If a billing error occurs, contact RentFlow support so the transaction can be reviewed. Refund eligibility is determined based on the circumstances of the charge and applicable law.
+                """
+            )
+
+    support_email = rentflow_secret_get("RENTFLOW_SUPPORT_EMAIL", "support@rentflow.app")
+    st.markdown(f"**Support:** {support_email}")
+    st.caption("Subscription checkout is temporarily unavailable while live payment processing is being activated.")
 
     st.markdown(
         """
@@ -17064,13 +17098,24 @@ if menu == "Plans & Usage":
                             else f"Switch to {name}"
                         )
 
+                        live_billing_enabled = str(
+                            rentflow_secret_get("RENTFLOW_LIVE_BILLING_ENABLED", "false")
+                        ).strip().lower() in {"1", "true", "yes", "on"}
+
                         if st.button(
-                            button_label,
+                            button_label if live_billing_enabled else f"{name} — Billing activation pending",
                             type="primary" if name == "Professional" else "secondary",
                             use_container_width=True,
+                            disabled=not live_billing_enabled,
                             key=f"p2_choose_{name.lower()}"
                         ):
                             selected_billing_plan = name
+
+        if not str(rentflow_secret_get("RENTFLOW_LIVE_BILLING_ENABLED", "false")).strip().lower() in {"1", "true", "yes", "on"}:
+            st.info(
+                "Live subscription billing is being activated. Your current RentFlow access remains available; "
+                "plan checkout will open after payment processing is approved."
+            )
 
         # -----------------------------------------------------
         # STRIPE CHECKOUT
@@ -17148,9 +17193,6 @@ if menu == "Plans & Usage":
                 )
                 print(diagnostic, file=sys.stderr, flush=True)
                 st.error("Unable to change subscription plan.")
-                st.caption(
-                    f"Billing diagnostic: {type(e).__name__}: {safe_message}"
-                )
                 show_debug_exception(e)
 
         changed_plan = st.session_state.pop(
@@ -17241,7 +17283,7 @@ if menu == "Plans & Usage":
         ]
         st.table(pd.DataFrame(feature_rows, columns=["Feature", "Access"]))
 
-        st.caption("Stripe Test Mode can be used to test plan checkout without processing real money.")
+        st.caption("Live subscription billing becomes available after RentFlow payment processing is activated.")
 
 
     if _plans_section == "Tenant Payments":
