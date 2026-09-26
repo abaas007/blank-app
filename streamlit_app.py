@@ -1,4 +1,4 @@
-# RentFlow V1 Production - Public Launch / Billing Pending
+# RentFlow V1 Production - Mobile Step 7 / Public Launch / Billing Pending
 # Based on RC13G; preserves RC13D auth/role isolation and validated workflows.
 # RC8 - Render Environment Compatibility
 # Based on RC7 Owner Unit Editing Placement Fix
@@ -145,7 +145,7 @@ st.set_page_config(
 st.markdown(r'''
 <style>
 /* ============================================================
-   RentFlow V1 — MOBILE STEP 4
+   RentFlow V1 — MOBILE STEP 5
    Content/readability/touch optimization only.
    Desktop behavior is intentionally unchanged.
    ============================================================ */
@@ -278,7 +278,44 @@ st.markdown(r'''
 </style>
 ''', unsafe_allow_html=True)
 
-
+# STEP 7 — Compact mobile popovers. Keeps More as a small dropdown rather than
+# a full-width panel covering the dashboard.
+st.markdown(r'''
+<style>
+@media (max-width: 768px) {
+    div[data-baseweb="popover"]:has([data-testid="stPopoverBody"]) {
+        width: 238px !important;
+        max-width: calc(100vw - 20px) !important;
+    }
+    div[data-testid="stPopoverBody"] {
+        width: 238px !important;
+        max-width: calc(100vw - 20px) !important;
+        padding: .45rem !important;
+    }
+    div[data-testid="stPopoverBody"] .stButton > button {
+        min-height: 38px !important;
+        width: 100% !important;
+        border: 0 !important;
+        box-shadow: none !important;
+        background: transparent !important;
+        justify-content: flex-start !important;
+        padding: .35rem .45rem !important;
+        font-size: .82rem !important;
+        text-align: left !important;
+    }
+    div[data-testid="stPopoverBody"] .stButton > button:hover {
+        background: rgba(17,143,75,.08) !important;
+    }
+    div[data-testid="stPopoverBody"] hr {
+        margin: .30rem 0 !important;
+    }
+    div[data-testid="stPopoverBody"] [data-testid="stCaptionContainer"] {
+        font-size: .72rem !important;
+        margin-bottom: .10rem !important;
+    }
+}
+</style>
+''', unsafe_allow_html=True)
 
 
 # =========================================================
@@ -4227,6 +4264,57 @@ def show_tenant_portal(tenant_profile):
             color: #118F4B !important;
             background: transparent !important;
         }
+
+
+        /* STEP 6 — Tenant mobile header: daily-use navigation + compact menu. */
+        .st-key-tenant_mobile_user_menu { display: none !important; }
+
+        @media (max-width: 768px) {
+            .st-key-tenant_top_nav {
+                padding: .42rem .55rem !important;
+            }
+            .tenant-rentflow-brand span { display: none !important; }
+            .tenant-rentflow-brand { gap: 0 !important; }
+            .tenant-rentflow-brand img {
+                width: 31px !important;
+                height: 31px !important;
+            }
+            .st-key-tenant_portal_navigation [role="radiogroup"] {
+                gap: .20rem !important;
+                justify-content: space-between !important;
+                width: 100% !important;
+            }
+            .st-key-tenant_portal_navigation button,
+            .st-key-tenant_portal_navigation [role="radiogroup"] label {
+                font-size: .72rem !important;
+                padding-left: .08rem !important;
+                padding-right: .08rem !important;
+            }
+            .st-key-tenant_desktop_user_menu { display: none !important; }
+            .st-key-tenant_mobile_user_menu { display: block !important; }
+            .st-key-tenant_mobile_user_menu button {
+                min-height: 36px !important;
+                min-width: 40px !important;
+                padding-left: .35rem !important;
+                padding-right: .35rem !important;
+            }
+
+            /* STEP 7 — Tenant More stays on the same row as primary navigation. */
+            .st-key-tenant_top_nav [data-testid="stHorizontalBlock"] {
+                flex-wrap: nowrap !important;
+                gap: .20rem !important;
+                align-items: center !important;
+            }
+            .st-key-tenant_top_nav [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(1) {
+                flex: 0 0 34px !important; width: 34px !important; min-width: 34px !important;
+            }
+            .st-key-tenant_top_nav [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(2) {
+                flex: 1 1 auto !important; width: auto !important; min-width: 0 !important;
+            }
+            .st-key-tenant_top_nav [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(3) {
+                flex: 0 0 42px !important; width: 42px !important; min-width: 42px !important;
+            }
+        }
         </style>
         """,
         unsafe_allow_html=True
@@ -4276,41 +4364,51 @@ def show_tenant_portal(tenant_profile):
                 tenant_portal_choice = "🏠 Home"
 
         with tenant_user_col:
-            if hasattr(st, "popover"):
-                with st.popover(
-                    "👤",
-                    use_container_width=True
-                ):
-                    st.caption("Logged in as")
-                    st.markdown(
-                        f"**{tenant_profile.get('tenant_name', 'Tenant')}**"
-                    )
+            # Desktop account menu remains unchanged.
+            with st.container(key="tenant_desktop_user_menu"):
+                if hasattr(st, "popover"):
+                    with st.popover("👤", use_container_width=True):
+                        st.caption("Logged in as")
+                        st.markdown(f"**{tenant_profile.get('tenant_name', 'Tenant')}**")
+                        if tenant_profile.get("email"):
+                            st.caption(tenant_profile.get("email"))
+                        st.divider()
+                        if st.button("↪️ Sign Out", use_container_width=True, key="tenant_portal_sign_out_top"):
+                            auth_logout()
+                else:
+                    with st.expander("👤"):
+                        st.caption(f"Logged in as {tenant_profile.get('tenant_name', 'Tenant')}")
+                        if st.button("↪️ Sign Out", use_container_width=True, key="tenant_portal_sign_out_top_fallback"):
+                            auth_logout()
 
-                    if tenant_profile.get("email"):
-                        st.caption(
-                            tenant_profile.get("email")
-                        )
+            # STEP 6 — Mobile More menu: Documents, login email, Sign Out only.
+            with st.container(key="tenant_mobile_user_menu"):
+                if hasattr(st, "popover"):
+                    with st.popover("☰", use_container_width=True):
+                        if st.button("📁 Documents", use_container_width=True, key="tenant_mobile_documents"):
+                            st.session_state["tenant_mobile_documents_open"] = True
+                            st.rerun()
+                        if tenant_profile.get("email"):
+                            st.caption("Login Email")
+                            st.markdown(f"**{tenant_profile.get('email')}**")
+                        st.divider()
+                        if st.button("↪️ Sign Out", use_container_width=True, key="tenant_mobile_sign_out"):
+                            auth_logout()
+                else:
+                    with st.expander("☰"):
+                        if st.button("📁 Documents", use_container_width=True, key="tenant_mobile_documents_fallback"):
+                            st.session_state["tenant_mobile_documents_open"] = True
+                            st.rerun()
+                        if tenant_profile.get("email"):
+                            st.caption(f"Login Email · {tenant_profile.get('email')}")
+                        if st.button("↪️ Sign Out", use_container_width=True, key="tenant_mobile_sign_out_fallback"):
+                            auth_logout()
 
-                    st.divider()
-
-                    if st.button(
-                        "↪️ Sign Out",
-                        use_container_width=True,
-                        key="tenant_portal_sign_out_top"
-                    ):
-                        auth_logout()
-            else:
-                with st.expander("👤"):
-                    st.caption(
-                        f"Logged in as {tenant_profile.get('tenant_name', 'Tenant')}"
-                    )
-
-                    if st.button(
-                        "↪️ Sign Out",
-                        use_container_width=True,
-                        key="tenant_portal_sign_out_top_fallback"
-                    ):
-                        auth_logout()
+    if st.session_state.pop("tenant_mobile_documents_open", False):
+        st.info(
+            "Your lease and tenant documents are managed securely in RentFlow. "
+            "Document access shown here follows your tenant account permissions."
+        )
 
     tenant_id = tenant_profile.get("tenant_id")
     unit_id = tenant_profile.get("unit_id")
@@ -6932,6 +7030,53 @@ def show_demo_mode():
                 gap: .45rem !important;
             }
         }
+
+
+        /* STEP 6 — Demo mobile navigation mirrors the Owner portal. */
+        .st-key-demo_mobile_user_menu { display: none !important; }
+        @media (max-width: 768px) {
+            .st-key-demo_top_nav { padding: .42rem .55rem !important; }
+            .rentflow-demo-brand span { display: none !important; }
+            .rentflow-demo-brand { gap: 0 !important; }
+            .st-key-demo_top_navigation [role="radiogroup"] > :nth-child(n+5) {
+                display: none !important;
+            }
+            .st-key-demo_top_navigation [role="radiogroup"] {
+                gap: .20rem !important;
+                justify-content: space-between !important;
+                width: 100% !important;
+            }
+            .st-key-demo_top_navigation button,
+            .st-key-demo_top_navigation [role="radiogroup"] label {
+                font-size: .72rem !important;
+                padding-left: .08rem !important;
+                padding-right: .08rem !important;
+            }
+            .st-key-demo_desktop_user_menu { display: none !important; }
+            .st-key-demo_mobile_user_menu { display: block !important; }
+            .st-key-demo_mobile_user_menu button {
+                min-height: 36px !important;
+                min-width: 40px !important;
+                padding-left: .35rem !important;
+                padding-right: .35rem !important;
+            }
+
+            /* STEP 7 — Demo mirrors Owner: More is part of the same top row. */
+            .st-key-demo_top_nav [data-testid="stHorizontalBlock"] {
+                flex-wrap: nowrap !important;
+                gap: .20rem !important;
+                align-items: center !important;
+            }
+            .st-key-demo_top_nav [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(1) {
+                flex: 0 0 34px !important; width: 34px !important; min-width: 34px !important;
+            }
+            .st-key-demo_top_nav [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(2) {
+                flex: 1 1 auto !important; width: auto !important; min-width: 0 !important;
+            }
+            .st-key-demo_top_nav [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(3) {
+                flex: 0 0 42px !important; width: 42px !important; min-width: 42px !important;
+            }
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -6980,33 +7125,53 @@ def show_demo_mode():
             demo_page = "🏠 Dashboard"
 
         with user_col:
-            if hasattr(st, "popover"):
-                with st.popover(
-                    "🎯",
-                    use_container_width=True,
-                ):
-                    st.caption("Demo Mode")
-                    st.write("Fictional sample portfolio")
-                    st.divider()
-                    if st.button(
-                        "✨ Create My Account",
-                        type="primary",
-                        use_container_width=True,
-                        key="demo_create_account_v79a",
-                    ):
-                        st.session_state["demo_mode"] = False
-                        st.session_state["show_auth_screen"] = True
-                        st.session_state[
-                            "auth_default_tab"
-                        ] = "signup"
-                        st.rerun()
-                    if st.button(
-                        "← Exit Demo",
-                        use_container_width=True,
-                        key="demo_exit_v79a",
-                    ):
-                        st.session_state["demo_mode"] = False
-                        st.rerun()
+            # Desktop demo control remains unchanged.
+            with st.container(key="demo_desktop_user_menu"):
+                if hasattr(st, "popover"):
+                    with st.popover("🎯", use_container_width=True):
+                        st.caption("Demo Mode")
+                        st.write("Fictional sample portfolio")
+                        st.divider()
+                        if st.button("✨ Create My Account", type="primary", use_container_width=True, key="demo_create_account_v79a"):
+                            st.session_state["demo_mode"] = False
+                            st.session_state["show_auth_screen"] = True
+                            st.session_state["auth_default_tab"] = "signup"
+                            st.rerun()
+                        if st.button("← Exit Demo", use_container_width=True, key="demo_exit_v79a"):
+                            st.session_state["demo_mode"] = False
+                            st.rerun()
+
+            # STEP 6 — Mobile Demo menu mirrors Owner navigation.
+            with st.container(key="demo_mobile_user_menu"):
+                if hasattr(st, "popover"):
+                    with st.popover("☰", use_container_width=True):
+                        for _label in ["🏢 Properties", "📁 Documents", "📊 Reports", "⚙️ Admin"]:
+                            if st.button(_label, use_container_width=True, key=f"demo_mobile_more_{_label}"):
+                                st.session_state["demo_pending_page"] = _label
+                                st.rerun()
+                        st.divider()
+                        if st.button("✨ Create My Account", use_container_width=True, key="demo_mobile_create_account"):
+                            st.session_state["demo_mode"] = False
+                            st.session_state["show_auth_screen"] = True
+                            st.session_state["auth_default_tab"] = "signup"
+                            st.rerun()
+                        if st.button("← Exit Demo", use_container_width=True, key="demo_mobile_exit"):
+                            st.session_state["demo_mode"] = False
+                            st.rerun()
+                else:
+                    with st.expander("☰"):
+                        for _label in ["🏢 Properties", "📁 Documents", "📊 Reports", "⚙️ Admin"]:
+                            if st.button(_label, use_container_width=True, key=f"demo_mobile_more_fallback_{_label}"):
+                                st.session_state["demo_pending_page"] = _label
+                                st.rerun()
+                        if st.button("✨ Create My Account", use_container_width=True, key="demo_mobile_create_account_fallback"):
+                            st.session_state["demo_mode"] = False
+                            st.session_state["show_auth_screen"] = True
+                            st.session_state["auth_default_tab"] = "signup"
+                            st.rerun()
+                        if st.button("← Exit Demo", use_container_width=True, key="demo_mobile_exit_fallback"):
+                            st.session_state["demo_mode"] = False
+                            st.rerun()
 
     # Section selection.
     demo_sections = demo_submenus[demo_page]
@@ -11777,6 +11942,79 @@ st.markdown(
             gap: 0.65rem !important;
         }
     }
+
+    /* STEP 5 — Mobile primary navigation + compact More menu.
+       Desktop navigation remains unchanged. */
+    .st-key-owner_mobile_user_menu {
+        display: none !important;
+    }
+
+    @media (max-width: 768px) {
+        .st-key-owner_top_nav {
+            padding: 0.42rem 0.55rem !important;
+        }
+
+        .rentflow-top-brand {
+            font-size: 0 !important;
+            gap: 0 !important;
+            padding-left: 0 !important;
+        }
+
+        .rentflow-brand-logo {
+            width: 31px !important;
+            height: 31px !important;
+        }
+
+        /* Mobile keeps the four daily-use areas visible.
+           Properties/Documents/Reports/Admin move into the More menu. */
+        .st-key-owner_top_navigation [role="radiogroup"] > :nth-child(n+5) {
+            display: none !important;
+        }
+
+        .st-key-owner_top_navigation [role="radiogroup"] {
+            gap: 0.20rem !important;
+            justify-content: space-between !important;
+            width: 100% !important;
+        }
+
+        .st-key-owner_top_navigation button,
+        .st-key-owner_top_navigation [role="radiogroup"] label {
+            font-size: 0.72rem !important;
+            padding-left: 0.08rem !important;
+            padding-right: 0.08rem !important;
+        }
+
+        .st-key-owner_desktop_user_menu {
+            display: none !important;
+        }
+
+        .st-key-owner_mobile_user_menu {
+            display: block !important;
+        }
+
+        .st-key-owner_mobile_user_menu button {
+            min-height: 36px !important;
+            min-width: 40px !important;
+            padding-left: 0.35rem !important;
+            padding-right: 0.35rem !important;
+        }
+
+        /* STEP 7 — keep brand, primary navigation, and More on one row. */
+        .st-key-owner_top_nav [data-testid="stHorizontalBlock"] {
+            flex-wrap: nowrap !important;
+            gap: .20rem !important;
+            align-items: center !important;
+        }
+        .st-key-owner_top_nav [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(1) {
+            flex: 0 0 34px !important; width: 34px !important; min-width: 34px !important;
+        }
+        .st-key-owner_top_nav [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(2) {
+            flex: 1 1 auto !important; width: auto !important; min-width: 0 !important;
+        }
+        .st-key-owner_top_nav [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(3) {
+            flex: 0 0 42px !important; width: 42px !important; min-width: 42px !important;
+        }
+    }
     </style>
     """,
     unsafe_allow_html=True
@@ -12451,38 +12689,91 @@ with st.container(key="owner_top_nav"):
 
     with user_col:
 
-        if hasattr(st, "popover"):
-            with st.popover(
-                "👤",
-                use_container_width=True
-            ):
-                st.caption("Logged in as")
-                st.markdown(
-                    f"**{user_email}**"
-                )
-
-                st.divider()
-
-                if st.button(
-                    "↪️ Sign Out",
-                    use_container_width=True,
-                    key="owner_top_sign_out"
+        # Desktop account menu — unchanged presentation.
+        with st.container(key="owner_desktop_user_menu"):
+            if hasattr(st, "popover"):
+                with st.popover(
+                    "👤",
+                    use_container_width=True
                 ):
-                    auth_logout()
+                    st.caption("Logged in as")
+                    st.markdown(f"**{user_email}**")
+                    st.divider()
 
-        else:
-            # Compatibility fallback for older Streamlit builds.
-            with st.expander("👤"):
-                st.caption(
-                    f"Logged in as {user_email}"
-                )
+                    if st.button(
+                        "↪️ Sign Out",
+                        use_container_width=True,
+                        key="owner_top_sign_out"
+                    ):
+                        auth_logout()
+            else:
+                with st.expander("👤"):
+                    st.caption(f"Logged in as {user_email}")
+                    if st.button(
+                        "↪️ Sign Out",
+                        use_container_width=True,
+                        key="owner_top_sign_out_fallback"
+                    ):
+                        auth_logout()
 
-                if st.button(
-                    "↪️ Sign Out",
-                    use_container_width=True,
-                    key="owner_top_sign_out_fallback"
-                ):
-                    auth_logout()
+        # STEP 5 — Mobile More menu. The four daily-use sections remain
+        # visible in the top navigation; lower-frequency destinations live here.
+        with st.container(key="owner_mobile_user_menu"):
+            if hasattr(st, "popover"):
+                with st.popover("☰", use_container_width=True):
+                    _mobile_more_destinations = [
+                        ("🏢 Properties", "🏢 Properties", None),
+                        ("📁 Documents", "📁 Documents", None),
+                        ("📊 Reports", "📊 Reports", None),
+                        ("⚙️ Admin", "⚙️ Admin", None),
+                        ("🔐 Account", "⚙️ Admin", "Account & Security"),
+                    ]
+
+                    for _label, _nav, _subtab in _mobile_more_destinations:
+                        _display_label = (
+                            f"{_label}  ·  {user_email}"
+                            if _label == "🔐 Account"
+                            else _label
+                        )
+                        if st.button(
+                            _display_label,
+                            use_container_width=True,
+                            key=f"owner_mobile_more_{_label}"
+                        ):
+                            rentflow_go_to(_nav, _subtab)
+                            st.rerun()
+
+                    st.divider()
+                    if st.button(
+                        "↪️ Sign Out",
+                        use_container_width=True,
+                        key="owner_mobile_more_sign_out"
+                    ):
+                        auth_logout()
+            else:
+                # Older Streamlit fallback: same destinations in an expander.
+                with st.expander("☰"):
+                    st.caption(f"Account · {user_email}")
+                    for _label, _nav, _subtab in [
+                        ("🏢 Properties", "🏢 Properties", None),
+                        ("📁 Documents", "📁 Documents", None),
+                        ("📊 Reports", "📊 Reports", None),
+                        ("⚙️ Admin", "⚙️ Admin", None),
+                        ("🔐 Account", "⚙️ Admin", "Account & Security"),
+                    ]:
+                        if st.button(
+                            _label,
+                            use_container_width=True,
+                            key=f"owner_mobile_more_fallback_{_label}"
+                        ):
+                            rentflow_go_to(_nav, _subtab)
+                            st.rerun()
+                    if st.button(
+                        "↪️ Sign Out",
+                        use_container_width=True,
+                        key="owner_mobile_more_sign_out_fallback"
+                    ):
+                        auth_logout()
 
 menu = _owner_menu_map[
     _owner_menu_choice
