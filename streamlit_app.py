@@ -145,7 +145,7 @@ st.set_page_config(
 st.markdown(r'''
 <style>
 /* ============================================================
-   RentFlow V1 — MOBILE STEP 3
+   RentFlow V1 — MOBILE STEP 4
    Content/readability/touch optimization only.
    Desktop behavior is intentionally unchanged.
    ============================================================ */
@@ -3398,6 +3398,36 @@ def show_tenant_forgot_password_page():
 
 def show_tenant_portal_auth():
 
+    # MOBILE STEP 4: Public/auth pages use the full mobile viewport.
+    # Desktop remains unchanged; this only collapses the outer spacer-column
+    # layout that centers Owner Sign In / Create Account / Tenant Sign In.
+    st.markdown(
+        """
+        <style>
+        @media (max-width: 768px) {
+            div[data-testid="stHorizontalBlock"]:has(.st-key-login_email)
+                > div[data-testid="stColumn"]:not(:has(.st-key-login_email)),
+            div[data-testid="stHorizontalBlock"]:has(.st-key-tenant_login_email)
+                > div[data-testid="stColumn"]:not(:has(.st-key-tenant_login_email)) {
+                display: none !important;
+            }
+
+            div[data-testid="stHorizontalBlock"]:has(.st-key-login_email)
+                > div[data-testid="stColumn"]:has(.st-key-login_email),
+            div[data-testid="stHorizontalBlock"]:has(.st-key-tenant_login_email)
+                > div[data-testid="stColumn"]:has(.st-key-tenant_login_email) {
+                flex: 1 1 100% !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
     st.markdown(
         """
         <style>
@@ -5305,6 +5335,36 @@ def show_rentflow_admin_auth():
                     st.error("Invalid admin email or password.")
 
 def show_login_page():
+
+    # MOBILE STEP 4: Public/auth pages use the full mobile viewport.
+    # Desktop remains unchanged; this only collapses the outer spacer-column
+    # layout that centers Owner Sign In / Create Account / Tenant Sign In.
+    st.markdown(
+        """
+        <style>
+        @media (max-width: 768px) {
+            div[data-testid="stHorizontalBlock"]:has(.st-key-login_email)
+                > div[data-testid="stColumn"]:not(:has(.st-key-login_email)),
+            div[data-testid="stHorizontalBlock"]:has(.st-key-tenant_login_email)
+                > div[data-testid="stColumn"]:not(:has(.st-key-tenant_login_email)) {
+                display: none !important;
+            }
+
+            div[data-testid="stHorizontalBlock"]:has(.st-key-login_email)
+                > div[data-testid="stColumn"]:has(.st-key-login_email),
+            div[data-testid="stHorizontalBlock"]:has(.st-key-tenant_login_email)
+                > div[data-testid="stColumn"]:has(.st-key-tenant_login_email) {
+                flex: 1 1 100% !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 
     st.markdown(
